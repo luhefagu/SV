@@ -1,0 +1,1574 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Signos Vitales y Balance Hídrico</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- No longer using Flatpickr -->
+    <!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"> -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script> -->
+
+    <!-- Chosen Palette: Clinical Blue & Neutral Gray -->
+    <!-- Application Structure Plan: This SPA focuses on the 'Registro Enfermería' section, specifically 'Signos Vitales'. It uses an HTML table for vitals, with in-line editing and modal interactions for HGT. Date navigation is integrated directly with the 'Signos Vitales' section header for temporal review. The Balance Hídrico section has been removed to simplify the view as per user request. -->
+    <!-- Visualization & Content Choices: Signos Vitales Table -> HTML Table with contenteditable cells. Goal: Record/Monitor. Interaction: In-line editing with validation, subtle save feedback (color change, floppy disk icon), clickable comment icon for expandable textarea, HGT column cell/header click to open HGT history/modal. Justification: Efficient for rapid data entry and quick overview. Date Navigation -> Buttons. Goal: Navigate History. Interaction: Click to change day. Justification: Provides intuitive temporal navigation directly within the relevant section. HGT Modals -> HTML Modals (for registration and history). Goal: Record/Review. Interaction: Form submission, close buttons. Justification: Centralizes HGT management, keeps main table clean. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        html { font-size: 75%; } /* Makes 1rem = 12px (16px * 0.75) */
+        body { font-family: 'Inter', sans-serif; }
+        .tab-active { border-bottom-color: #3b82f6; color: #3b82f6; font-weight: 600; }
+        .subtab-active { background-color: #e0f2fe; color: #0284c7; }
+        .wysiwyg-editor { min-height: 250px; border: 1px solid #d1d5db; padding: 1rem; border-radius: 0.375rem; outline: none; }
+        .wysiwyg-editor:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+        .table-sortable th { cursor: pointer; user-select: none; }
+        .table-sortable th:hover { background-color: #f3f4f6; }
+        .status-revisada { background-color: #e0f2fe; border-left: 4px solid #0284c7; }
+        .status-pendiente { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .status-cancelada { text-decoration: line-through; color: #9ca3af; background-color: #f3f4f6; border-left: 4px solid #9ca3af; }
+        .admin-check { color: #22c55e; font-weight: bold; }
+        .admin-missed { color: #ef4444; border: 2px solid #ef4444; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; }
+        .admin-infusion { color: #22c55e; }
+        .quick-peek-popup {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            z-index: 50;
+            width: 300px;
+            display: none;
+            right: 0;
+            top: 100%;
+            margin-top: 0.5rem;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 40vh;
+        }
+        @media (min-width: 768px) { .chart-container { height: 350px; } }
+
+        /* Custom styles for in-line editing feedback */
+        .cell-saved-feedback {
+            background-color: #dcfce7 !important; /* Light green */
+            transition: background-color 0.5s ease-out;
+        }
+        .save-icon {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 0.8em;
+            color: #10b981; /* Green */
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .save-icon.show {
+            opacity: 1;
+        }
+        .comment-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+        .comment-overlay textarea {
+            width: 100%;
+            height: 100%;
+            resize: none;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 5px;
+            font-size: 0.875rem; /* Still text-sm equivalent relative to new base */
+        }
+        .comment-icon-active {
+            color: #3b82f6; /* Blue for active comments */
+        }
+        .hgt-cell-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
+        .hgt-cell-value {
+            flex-grow: 1;
+            text-align: center;
+        }
+        .hgt-register-btn {
+            background-color: #a78bfa; /* Purple */
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.875rem; /* Adjusted from 0.75rem to be 10.5px */
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .hgt-register-btn:hover {
+            background-color: #8b5cf6;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 90%;
+            max-width: 1200px; /* Increased max-width for two columns */
+            max-height: 90vh;
+            overflow-y: auto; /* Allow modal content to scroll if needed */
+            position: relative;
+        }
+        .modal-close-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #6b7280;
+        }
+
+        /* Styles for vital signs table */
+        .scrollable-table-wrapper {
+            /* Removed overflow-x: auto; to use browser scroll */
+            /* Removed overflow-y and max-height to use browser scroll */
+            border: 1px solid #e5e7eb; /* Optional: adds a border around the scrollable area */
+            border-radius: 0.375rem;
+            margin-top: 1rem; /* Adjust as needed */
+            position: relative; /* Needed for positioning the insert button */
+        }
+
+        .scrollable-table-wrapper table {
+            width: 100%; /* Ensure table takes full width of its container */
+            border-collapse: collapse; /* Collapse borders for cleaner look */
+        }
+
+        .scrollable-table-wrapper thead {
+            position: sticky;
+            top: 0;
+            background-color: #f9fafb; /* Light gray background for sticky header */
+            z-index: 20; /* Ensure header stays on top of scrolling content */
+            box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1); /* Optional: subtle shadow for header */
+        }
+
+        .scrollable-table-wrapper th {
+            background-color: #f9fafb; /* Ensure sticky header cells also have background */
+        }
+
+        /* Sticky first column (Hora) - Header */
+        .scrollable-table-wrapper th:first-child {
+            position: sticky;
+            left: 0;
+            background-color: #f9fafb; /* Match thead background */
+            z-index: 15; /* Ensure first column cells stay on top of horizontal scrolling content */
+            /* Removed specific padding-right as the add-row-fixed-btn is removed */
+        }
+        /* Sticky first column (Hora) - Body Cells */
+        .scrollable-table-wrapper td:first-child {
+            position: sticky; /* Make the first column sticky */
+            left: 0; /* Stick to the left edge */
+            background-color: white; /* White background in first column */
+            z-index: 10; /* Lower than header, higher than other cells */
+            padding-left: 12px; /* px-3 */
+            padding-right: 12px; /* px-3 */
+        }
+
+        /* Styles for the new fixed insert row button (now removed) */
+        /*
+        #add-row-fixed-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: #3b82f6;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 30;
+            border: none;
+        }
+        #add-row-fixed-btn:hover {
+            background-color: #2563eb;
+        }
+        */
+
+        .new-row-highlight {
+            background-color: #e0f7fa !important; /* Light cyan for highlight */
+            transition: background-color 0.5s ease-out;
+        }
+        .hover-time-cell {
+            background-color: #f0f8ff; /* Light blue */
+            border-bottom: 1px solid #bfdbfe; /* Light blue border */
+        }
+        .time-input-error {
+            border: 2px solid #ef4444 !important; /* Red border for error */
+        }
+
+        /* New styles for comments column */
+        .comments-column {
+            min-width: 120px; /* Set a minimum width for the column to allow header wrapping */
+            max-width: 150px; /* Set a maximum width for the column */
+            word-break: break-word; /* Break long words to wrap */
+            overflow: hidden; /* Hide overflowing content */
+            white-space: normal; /* Ensure text wraps */
+        }
+
+        .comments-column .comment-display {
+            display: block; /* Ensure it takes full width */
+            white-space: nowrap; /* Prevent wrapping for truncation */
+            overflow: hidden; /* Hide overflow */
+            text-overflow: ellipsis; /* Show ellipsis for truncated text */
+        }
+
+        /* New style for odd hours rows */
+        .odd-hour-row {
+            background-color: #f9fafb; /* Light grey for odd hours */
+        }
+
+        /* Ensure the sticky first cell also gets the alternating background */
+        .odd-hour-row td:first-child {
+            background-color: #f9fafb !important; /* Override the white background for sticky cell */
+        }
+
+        /* Class to hide rows when compacting */
+        .hidden-row {
+            display: none;
+        }
+
+        /* Styles for sticky left column in HGT modal */
+        .hgt-modal-left-column {
+            position: sticky;
+            top: 0; /* Stick to the top of its scrolling container */
+            align-self: flex-start; /* Ensure it aligns to the start of the cross-axis */
+            max-height: calc(90vh - 4rem); /* Adjust max-height to fit within modal, accounting for padding */
+            overflow-y: auto; /* Allow internal scrolling if content overflows */
+            padding-right: 1rem; /* Add some padding to the right for separation */
+        }
+
+        /* Styles for the right column in HGT modal to enable scrolling */
+        .hgt-modal-right-column {
+            overflow-y: auto; /* Enable vertical scrolling */
+            max-height: calc(90vh - 4rem - 1rem); /* 90vh modal height - 2*2rem padding - 1rem h3 margin-bottom */
+            padding-left: 1rem; /* Add some padding to the left for separation */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="enfermeria-content" class="max-w-screen-xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div class="bg-white p-6 rounded-lg shadow">
+            <!-- Sección de Signos Vitales -->
+            <div id="signos-vitales-section" class="mb-8">
+                <div class="flex items-center justify-between pb-1 mb-1">
+                    <div class="flex flex-1 items-center space-x-3">
+                        <p class="text-xl text-gray-500 mt-1"><span id="patient-name">Juan Pérez</span>  <span id="patient-rut">12.345.678-9</span></p>
+                    </div>
+                    <div class="flex items-center space-x-4 flex-1 justify-center">
+                        <h3 class="text-xl font-semibold text-gray-900">Signos Vitales</h3>
+                        <button id="toggle-compact-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 py-1 px-3 rounded-md text-base">Compactar</button>
+                    </div>
+
+                    <div class="flex-1 items-center space-x-2 text-right">
+                        <button id="prev-day-btn" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-base">«</button>
+                        <span id="current-date-range" class="text-base font-semibold text-gray-700"></span>
+                        <button id="next-day-btn" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-base">»</button>
+                    </div>
+                </div>
+                <div class="scrollable-table-wrapper">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 relative">
+                                    Hora
+                                    <!-- Removed the add-row-fixed-btn -->
+                                </th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Temp (°C)</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">FC (lpm)</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">PA/PAM (mmHg)</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">FR (rpm)</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">SatO2 (%)</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Fi O2</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Dolor Reposo</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Dolor Dinámico</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">PVC</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">PA Invasiva</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Glasgow</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider cursor-pointer" id="hgt-column-header">HGT</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider comments-column">Comentarios</th>
+                                <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Iniciales</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vitals-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows will be dynamically generated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Tabla Histórica de HGT -->
+    <div id="hgt-history-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <span class="modal-close-btn" id="close-hgt-history-modal">✖</span>
+            <h3 class="text-xl font-bold mb-4">Historial de Hemoglucotest (HGT)</h3>
+            
+            <div class="flex flex-col md:flex-row gap-4">
+                <!-- Columna Izquierda: Esquema de Insulina (20%) -->
+                <div class="w-full md:w-1/5 space-y-3 hgt-modal-left-column">
+                    <div>
+                        <div class="mb-1">
+                            <label for="basal-insulin-type" class="block text-sm font-medium text-gray-700">Tipo de Insulina Lenta</label>
+                            <input type="text" id="basal-insulin-type" class="mt-0.5 block w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Glargina, Detemir">
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2">
+                            <label for="basal-am-dose" class="text-sm font-medium text-gray-700">AM:</label>
+                            <input type="text" id="basal-am-dose" class="w-1/3 p-1 border border-gray-300 rounded-md text-sm text-center" data-column="am">
+                            <span class="text-sm text-gray-600">UI</span>
+                            <label for="basal-pm-dose" class="text-sm font-medium text-gray-700 ml-4">PM:</label>
+                            <input type="text" id="basal-pm-dose" class="w-1/3 p-1 border border-gray-300 rounded-md text-sm text-center" data-column="pm">
+                            <span class="text-sm text-gray-600">UI</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="mb-1">
+                            <label for="rapid-insulin-type" class="block text-sm font-medium text-gray-700">Tipo de Insulina Rápida</label>
+                            <input type="text" id="rapid-insulin-type" class="mt-0.5 block w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Lispro, Aspártica">
+                        </div>
+                        <table class="min-w-full divide-y divide-gray-200 mb-4">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Rango HGT</th>
+                                    <th class="px-2 py-1 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Dosis (UI)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rapid-insulin-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Rapid insulin rows will be dynamically generated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Historial de HGT y Registro Inline (80%) -->
+                <div class="w-full md:w-4/5 space-y-6 hgt-modal-right-column">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Fecha/Hora</th>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Valor HGT (mg/dL)</th>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Dosis Insulina (UI)</th>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Tipo Insulina</th>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Observaciones</th>
+                                    <th class="px-3 py-3 text-left text-base font-medium text-gray-500 uppercase tracking-wider">Ejecutor</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hgt-history-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- HGT history will be dynamically loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Formulario de Registro de HGT Inline -->
+                    <div id="hgt-register-inline-form" class="bg-gray-50 p-4 rounded-md hidden">
+                        <h4 class="text-lg font-bold mb-3">Registrar Nuevo Hemoglucotest</h4>
+                        
+                        <!-- Removed Quick Guide for Rapid Insulin (Mobile Only) -->
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="hgt-inline-value" class="block text-base font-medium text-gray-700">Valor HGT (mg/dL)</label>
+                                <input type="number" id="hgt-inline-value" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                            </div>
+                            <div>
+                                <label for="hgt-inline-insulin-dose" class="block text-base font-medium text-gray-700">Dosis Insulina (UI)</label>
+                                <input type="number" id="hgt-inline-insulin-dose" class="mt-1 block w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: 5">
+                            </div>
+                            <div>
+                                <label for="hgt-inline-insulin-type" class="block text-base font-medium text-gray-700">Tipo de Insulina</label>
+                                <input type="text" id="hgt-inline-insulin-type" class="mt-1 block w-full p-2 border border-gray-300 rounded-md" placeholder="Ej: Rápida, Lenta">
+                            </div>
+                            <div>
+                                <label for="hgt-inline-observation" class="block text-base font-medium text-gray-700">Observaciones (Opcional)</label>
+                                <textarea id="hgt-inline-observation" rows="1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md" maxlength="120"></textarea>
+                            </div>
+                            <div>
+                                <label for="hgt-inline-register-time" class="block text-base font-medium text-gray-700">Hora de Registro</label>
+                                <input type="time" id="hgt-inline-register-time" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                            </div>
+                        </div>
+                        <div class="mt-4 flex justify-end">
+                            <button id="save-inline-hgt-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Guardar HGT</button>
+                        </div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button id="toggle-inline-hgt-form-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md">Registrar Nuevo HGT</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let currentDate = new Date(); // This date represents the START of the 24-hour cycle (08:00 AM)
+            let currentPatientId = 1;
+            const loggedInUserInitials = 'JP';
+            let isCompactMode = false; // New state variable for compact mode
+
+            // Helper to generate random number within a range
+            function getRandom(min, max) {
+                return Math.random() * (max - min) + min;
+            }
+
+            // Helper to get a random integer
+            function getRandomInt(min, max) {
+                min = Math.ceil(min);
+                max = Math.floor(max);
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+            // Function to generate vital signs for a specific hour
+            function generateVitalSignEntry(dateKey, time, initials) {
+                let entry = {
+                    date: dateKey,
+                    time: time,
+                    initials: initials
+                };
+
+                // Temperature (°C)
+                let temp = getRandom(36.5, 37.5); // Normal range
+                if (Math.random() < 0.1) temp = getRandom(38.0, 39.5); // Fever
+                else if (Math.random() < 0.05) temp = getRandom(35.0, 36.0); // Hypothermia
+                entry.temp = parseFloat(temp.toFixed(1));
+
+                // FC (lpm)
+                let fc = getRandomInt(60, 90); // Normal range
+                if (Math.random() < 0.15) fc = getRandomInt(100, 120); // Tachycardia
+                else if (Math.random() < 0.05) fc = getRandomInt(45, 55); // Bradycardia
+                entry.fc = fc;
+
+                // PA/PAM (mmHg)
+                let systolic = getRandomInt(110, 130);
+                let diastolic = getRandomInt(70, 85);
+                if (Math.random() < 0.15) { // Hypertension
+                    systolic = getRandomInt(140, 160);
+                    diastolic = getRandomInt(90, 100);
+                } else if (Math.random() < 0.05) { // Hypotension
+                    systolic = getRandomInt(90, 100);
+                    diastolic = getRandomInt(60, 70);
+                }
+                entry.pa = `${systolic}/${diastolic}`;
+                entry.pam = getRandomInt(75, 100); // PAM is often calculated, but for mock, let's give a reasonable range
+
+                // FR (rpm)
+                let fr = getRandomInt(14, 18); // Normal range
+                if (Math.random() < 0.1) fr = getRandomInt(20, 25); // Tachypnea
+                else if (Math.random() < 0.05) fr = getRandomInt(8, 10); // Bradypnea
+                entry.fr = fr;
+
+                // SatO2 (%)
+                let sat = getRandomInt(96, 99); // Normal range
+                if (Math.random() < 0.1) sat = getRandomInt(88, 94); // Desaturation
+                entry.sat = sat;
+
+                // FiO2
+                const fio2Options = ['21% amb', '24% CN', '28% CN', '30% Masc', '40% Masc'];
+                entry.fio2 = fio2Options[getRandomInt(0, fio2Options.length - 1)];
+                if (entry.sat < 95 && entry.fio2 === '21% amb') { // If desaturated, likely on O2
+                    entry.fio2 = fio2Options[getRandomInt(1, fio2Options.length - 1)];
+                }
+
+                // Dolor Reposo/Dinamico (0-10)
+                entry.dolorReposo = getRandomInt(0, 2);
+                if (Math.random() < 0.2) entry.dolorReposo = getRandomInt(3, 7); // Moderate pain
+                entry.dolorDinamico = getRandomInt(entry.dolorReposo, entry.dolorReposo + 2); // Dynamic pain usually >= rest pain
+                if (entry.dolorDinamico > 10) entry.dolorDinamico = 10;
+
+                // PVC (cmH2O) - often empty
+                entry.pvc = Math.random() < 0.3 ? getRandomInt(5, 12) : '';
+
+                // PA Invasiva - often empty
+                entry.painv = Math.random() < 0.2 ? `${getRandomInt(90, 140)}/${getRandomInt(50, 90)}` : '';
+
+                // Glasgow (3-15)
+                entry.glasgow = 15;
+                if (Math.random() < 0.08) entry.glasgow = getRandomInt(13, 14); // Slight alteration
+
+                // HGT (mg/dL) - often empty
+                if (Math.random() < 0.3) {
+                    let hgtValue = getRandomInt(80, 120); // Normal
+                    if (Math.random() < 0.1) hgtValue = getRandomInt(60, 70); // Hypoglycemia
+                    else if (Math.random() < 0.1) hgtValue = getRandomInt(180, 250); // Hyperglycemia
+                    entry.hgt = hgtValue;
+                } else {
+                    entry.hgt = '';
+                }
+
+                // Comments
+                const commentsOptions = [
+                    '', // Empty comment
+                    'Paciente estable.',
+                    'Sin novedades.',
+                    'Dolor controlado.',
+                    'Requiere reevaluación de dolor.',
+                    'Saturación baja, se ajusta FiO2.',
+                    'Hipertensión, se avisa a médico.',
+                    'Hipotensión, se administra bolo.',
+                    'Paciente somnoliento.',
+                    'Preparación para procedimiento.',
+                    'Reposo absoluto.',
+                    'Control de balance hídrico estricto.'
+                ];
+                entry.comments = commentsOptions[getRandomInt(0, commentsOptions.length - 1)];
+                if (Math.random() < 0.1) entry.comments = ''; // More empty comments
+
+                return entry;
+            }
+
+            // Generate data for 3 days, every 2 hours
+            const newVitalsData = {};
+            const startDate = new Date('2025-08-02T08:00:00'); // Start from 08:00 AM on Aug 2nd
+
+            for (let day = 0; day < 3; day++) {
+                const currentDay = new Date(startDate);
+                currentDay.setDate(startDate.getDate() + day);
+
+                // Loop for 24 hours (08:00 to 07:00 next day)
+                for (let i = 0; i < 24; i += 2) { // Every 2 hours
+                    const hourDate = new Date(currentDay);
+                    hourDate.setHours(8 + i, 0, 0, 0);
+
+                    // Adjust for next day if hour goes past 23:00
+                    let effectiveDate = new Date(hourDate);
+                    if (hourDate.getHours() < 8) { // If it's 00:00-07:00, it belongs to the next calendar day
+                        effectiveDate.setDate(effectiveDate.getDate() + 1);
+                    }
+                    const effectiveDateKey = effectiveDate.toISOString().slice(0, 10);
+                    const timeString = hourDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+                    if (!newVitalsData[effectiveDateKey]) {
+                        newVitalsData[effectiveDateKey] = [];
+                    }
+
+                    // Only add an entry if there's a 70% chance to have data, otherwise it's an empty hour
+                    if (Math.random() < 0.7) {
+                        const vitalEntry = generateVitalSignEntry(effectiveDateKey, timeString, 'JP');
+                        newVitalsData[effectiveDateKey].push(vitalEntry);
+                    } else {
+                        // Ensure empty entries still have date and time for rendering purposes, but no vital data
+                        newVitalsData[effectiveDateKey].push({ date: effectiveDateKey, time: timeString, initials: 'JP' });
+                    }
+                }
+            }
+
+            // Sort the entries within each day by time
+            for (const dateKey in newVitalsData) {
+                newVitalsData[dateKey].sort((a, b) => a.time.localeCompare(b.time));
+            }
+
+            // --- HGT Consolidation Logic ---
+            function consolidateHgtData(vitalsData, existingHgtHistory, patientId, loggedInUserInitials) {
+                const consolidated = [...existingHgtHistory]; // Start with existing history
+
+                const insulinTypes = ['Rápida', 'Lenta', 'NPH', 'No aplica'];
+                const observations = ['', 'Control rutinario', 'Post-prandial', 'Pre-desayuno'];
+                const executors = ['JP', 'ME', 'AM'];
+
+                for (const dateKey in vitalsData) {
+                    vitalsData[dateKey].forEach(vitalEntry => {
+                        if (vitalEntry.hgt && vitalEntry.hgt !== '') {
+                            // Check if this HGT entry already exists in the consolidated history
+                            const exists = consolidated.some(hgtEntry =>
+                                hgtEntry.date === vitalEntry.date && hgtEntry.time === vitalEntry.time && hgtEntry.value === vitalEntry.hgt
+                            );
+
+                            if (!exists) {
+                                // Add to consolidated history with random reasonable values for missing fields
+                                consolidated.push({
+                                    date: vitalEntry.date,
+                                    time: vitalEntry.time,
+                                    value: vitalEntry.hgt,
+                                    insulinDose: getRandomInt(0, 10), // Random dose
+                                    insulinType: insulinTypes[getRandomInt(0, insulinTypes.length - 1)], // Random type
+                                    observation: observations[getRandomInt(0, observations.length - 1)], // Random observation
+                                    executor: executors[getRandomInt(0, executors.length - 1)] // Random executor
+                                });
+                            }
+                        }
+                    });
+                }
+
+                // Sort the consolidated history by date and time (oldest to newest)
+                consolidated.sort((a, b) => {
+                    const dateTimeA = new Date(`${a.date}T${a.time}`);
+                    const dateTimeB = new Date(`${b.date}T${b.time}`);
+                    return dateTimeA - dateTimeB;
+                });
+
+                return consolidated;
+            }
+
+            const initialHgtHistory = [
+                { date: '2025-08-04', time: '08:00', value: 180, insulinDose: 5, insulinType: 'Rápida', observation: 'Post-desayuno', executor: 'ME' },
+                { date: '2025-08-04', time: '12:00', value: 120, insulinDose: 0, insulinType: '', observation: '', executor: 'ME' },
+                { date: '2025-08-05', time: '07:00', value: 150, insulinDose: 3, insulinType: 'Rápida', observation: 'Pre-desayuno', executor: 'JP' },
+            ];
+
+            const consolidatedHgt = consolidateHgtData(newVitalsData, initialHgtHistory, currentPatientId, loggedInUserInitials);
+
+            const mockPatientData = {
+                1: {
+                    hgtHistory: consolidatedHgt, // Now uses the consolidated and sorted data
+                    // New structure for insulin schema
+                    insulinSchema: {
+                        basal: {
+                            am: 10,
+                            pm: 8,
+                            insulinTypeLenta: 'Glargina' // New field
+                        },
+                        rapid: [
+                            { range: '0-70', dose: 0 },
+                            { range: '71-120', dose: 2 },
+                            { range: '121-180', dose: 4 },
+                            { range: '181-250', dose: 6 },
+                            { range: '>250', dose: 8 },
+                            { range: '', dose: '' }, 
+                            { range: '', dose: '' },
+                            { range: '', dose: '' },
+                            { range: '', dose: '' }, // Added to ensure 10 rows
+                            { range: '', dose: '' }  // Added to ensure 10 rows
+                        ],
+                        insulinTypeRapida: 'Lispro' // New field
+                    },
+                    vitals: newVitalsData, // Replaced with newly generated data
+                    // Removed balance data as per user request
+                }
+            };
+
+            const elements = {
+                currentDateRange: document.getElementById('current-date-range'),
+                prevDayBtn: document.getElementById('prev-day-btn'),
+                nextDayBtn: document.getElementById('next-day-btn'),
+                vitalsTableBody: document.getElementById('vitals-table-body'),
+                hgtColumnHeader: document.getElementById('hgt-column-header'),
+
+                hgtHistoryModal: document.getElementById('hgt-history-modal'),
+                closeHgtHistoryModal: document.getElementById('close-hgt-history-modal'),
+                hgtHistoryTableBody: document.getElementById('hgt-history-table-body'),
+                
+                rapidInsulinTableBody: document.getElementById('rapid-insulin-table-body'),
+                basalInsulinTypeInput: document.getElementById('basal-insulin-type'),
+                rapidInsulinTypeInput: document.getElementById('rapid-insulin-type'),
+
+                // New elements for inline basal insulin
+                basalAmDoseInput: document.getElementById('basal-am-dose'),
+                basalPmDoseInput: document.getElementById('basal-pm-dose'),
+
+                hgtRegisterInlineForm: document.getElementById('hgt-register-inline-form'),
+                hgtInlineValueInput: document.getElementById('hgt-inline-value'),
+                hgtInlineInsulinDoseInput: document.getElementById('hgt-inline-insulin-dose'),
+                hgtInlineInsulinTypeInput: document.getElementById('hgt-inline-insulin-type'),
+                hgtInlineObservationInput: document.getElementById('hgt-inline-observation'),
+                hgtInlineRegisterTimeInput: document.getElementById('hgt-inline-register-time'),
+                saveInlineHgtBtn: document.getElementById('save-inline-hgt-btn'),
+                toggleInlineHgtFormBtn: document.getElementById('toggle-inline-hgt-form-btn'),
+
+                vitalsTableScrollWrapper: document.querySelector('.scrollable-table-wrapper'),
+                signosVitalesSection: document.getElementById('signos-vitales-section'),
+                toggleCompactBtn: document.getElementById('toggle-compact-btn'),
+            };
+
+            // Utility functions
+            const formatDate = (date) => {
+                const options = { day: '2-digit', month: 'short', year: 'numeric' };
+                return date.toLocaleDateString('es-ES', options).replace('.', '');
+            };
+
+            const formatTime = (date) => {
+                return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+            };
+
+            // Updated get24HourPeriod to start at 08:00 today and end at 07:59 tomorrow
+            const get24HourPeriod = (date) => {
+                const start = new Date(date);
+                start.setHours(8, 0, 0, 0); // 08:00 AM of the selected day
+                const end = new Date(start);
+                end.setDate(start.getDate() + 1); // Set to next day
+                end.setHours(7, 59, 59, 999); // Explicitly set to 07:59:59.999 AM of the next day
+                return { start, end };
+            };
+
+            const getFormattedDateRange = (date) => {
+                const period = get24HourPeriod(date);
+                const startDay = formatDate(period.start).split(' ')[0];
+                const startMonth = formatDate(period.start).split(' ')[1];
+                const endDay = formatDate(period.end).split(' ')[0];
+                const endMonth = formatDate(period.end).split(' ')[1];
+
+                // Adjusting the display to show 08:00 today to 07:59 tomorrow
+                const displayEndDate = new Date(period.end);
+                displayEndDate.setHours(7, 59, 0, 0); // Show 07:59 for the end of the hourly cycle
+
+                return `${startDay} ${startMonth} ${displayEndDate.getFullYear()} ${formatTime(period.start)} - ${endDay} ${endMonth} ${displayEndDate.getFullYear()} ${formatTime(displayEndDate)}`;
+            };
+
+            // Render Functions
+            const renderSignosVitalesTable = (date) => {
+                // date here represents the start of the 24-hour cycle (08:00 AM of this date)
+                const currentCalendarDateKey = date.toISOString().slice(0, 10);
+                const nextCalendarDay = new Date(date);
+                nextCalendarDay.setDate(date.getDate() + 1);
+                const nextCalendarDateKey = nextCalendarDay.toISOString().slice(0, 10);
+
+                // Get vitals for both relevant calendar days
+                const vitalsForCurrentCalendarDay = mockPatientData[currentPatientId].vitals[currentCalendarDateKey] || [];
+                const vitalsForNextCalendarDay = mockPatientData[currentPatientId].vitals[nextCalendarDateKey] || [];
+
+                // Combine all relevant vitals for the 24-hour period (08:00 today to 07:59 tomorrow)
+                const allVitalsForPeriod = [
+                    ...vitalsForCurrentCalendarDay.filter(v => parseInt(v.time.split(':')[0]) >= 8), // Current day's 08:00-23:59
+                    ...vitalsForNextCalendarDay.filter(v => parseInt(v.time.split(':')[0]) < 8) // Next day's 00:00-07:59
+                ];
+
+                if (elements.vitalsTableBody) { // Added check
+                    elements.vitalsTableBody.innerHTML = '';
+                }
+
+
+                const allTimes = new Set();
+                
+                // Generate hourly entries from 08:00 today to 07:00 tomorrow (24 entries)
+                for (let i = 0; i < 24; i++) {
+                    const hourDate = new Date(date);
+                    hourDate.setHours(8 + i, 0, 0, 0); // Start at 08:00, add i hours
+                    
+                    // If the hour goes past 23:00 (i.e., becomes 24, 25, etc.), adjust to next day's hours
+                    if (hourDate.getHours() >= 24) {
+                        hourDate.setDate(hourDate.getDate() + 1);
+                        hourDate.setHours(hourDate.getHours() - 24);
+                    }
+                    allTimes.add(formatTime(hourDate));
+                }
+
+                // Add existing vital entry times from the combined period to ensure they are not lost if they don't fall on hourly marks
+                allVitalsForPeriod.forEach(entry => allTimes.add(entry.time));
+
+                // Convert set to array and sort chronologically
+                const sortedTimes = Array.from(allTimes).sort((a, b) => {
+                    const toMinutes = (timeStr) => {
+                        const [h, m] = timeStr.split(':').map(Number);
+                        // Adjust hours for the 08:00-07:59 cycle for sorting purposes
+                        // Times from 00:00 to 07:59 are considered "next day" relative to 08:00 start
+                        return (h < 8 ? h + 24 : h) * 60 + m;
+                    };
+                    return toMinutes(a) - toMinutes(b);
+                });
+
+                sortedTimes.forEach(hour => {
+                    // Determine the effective calendar date for this hour within the 24-hour cycle
+                    const hourNumber = parseInt(hour.split(':')[0]);
+                    let effectiveDateKeyForHour;
+                    if (hourNumber >= 8) { // Hours 08:00 to 23:59 belong to the currentCalendarDateKey
+                        effectiveDateKeyForHour = currentCalendarDateKey;
+                    } else { // Hours 00:00 to 07:59 belong to the nextCalendarDateKey
+                        effectiveDateKeyForHour = nextCalendarDateKey;
+                    }
+
+                    // Find the vital entry based on both effective date and time
+                    const vitalEntry = allVitalsForPeriod.find(v => v.time === hour && v.date === effectiveDateKeyForHour) || {};
+                    
+                    const isOddHour = hourNumber % 2 !== 0;
+
+                    const row = document.createElement('tr');
+                    // Store both time and effective date key for easier lookup in handleVitalSignEdit
+                    row.dataset.time = hour;
+                    row.dataset.date = effectiveDateKeyForHour; 
+                    if (isOddHour) {
+                        row.classList.add('odd-hour-row');
+                    }
+
+                    // Determine if the row is empty for compact mode (Opción B)
+                    const isRowEmpty = Object.keys(vitalEntry).every(key => {
+                        // These keys are always present or have default values, so they don't count as "data"
+                        if (['time', 'date', 'initials'].includes(key)) {
+                            return true;
+                        }
+                        // For other keys, check if the value is truly empty
+                        const value = vitalEntry[key];
+                        return value === '' || value === null || value === undefined || (typeof value === 'number' && isNaN(value));
+                    });
+
+                    if (isCompactMode && isRowEmpty) {
+                        row.classList.add('hidden-row');
+                    }
+
+                    row.innerHTML = `
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900 sticky left-0 bg-white z-10" contenteditable="true" data-column="time" data-time="${hour}">${hour}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="temp" data-type="number" data-validation="temp">${vitalEntry.temp || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="fc" data-type="number" data-validation="fc">${vitalEntry.fc || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="pa_pam" data-type="text" data-validation="pa_pam">${vitalEntry.pa || ''}${vitalEntry.pam ? `, ${vitalEntry.pam}` : ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="fr" data-type="number" data-validation="fr">${vitalEntry.fr || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="sat" data-type="number" data-validation="sat">${vitalEntry.sat || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="fio2" data-type="text">${vitalEntry.fio2 || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="dolorReposo" data-type="number" data-validation="pain-scale" title="Escala EVA: 0=sin dolor, 10=peor dolor posible">${vitalEntry.dolorReposo || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="dolorDinamico" data-type="number" data-validation="pain-scale" title="Escala EVA: 0=sin dolor, 10=peor dolor posible">${vitalEntry.dolorDinamico || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="pvc" data-type="number" data-validation="pvc">${vitalEntry.pvc || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="painv" data-type="text" data-validation="painv">${vitalEntry.painv || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="glasgow" data-type="number" data-validation="glasgow">${vitalEntry.glasgow || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900 hgt-cell relative">
+                            <div class="hgt-cell-content">
+                                <span class="hgt-cell-value">${vitalEntry.hgt || ''}</span>
+                                ${vitalEntry.hgt ? '' : `<button class="hgt-register-btn" data-hour="${hour}">+</button>`}
+                            </div>
+                            <div class="comment-overlay hidden">
+                                <textarea class="w-full h-full resize-none border rounded-md p-1 text-base" placeholder="Comentario HGT"></textarea>
+                                <button class="absolute bottom-1 right-1 bg-blue-500 text-white px-2 py-1 rounded-md text-sm save-comment-btn">💾</button>
+                            </div>
+                        </td>
+                        <td class="px-3 py-2 text-base text-gray-900 comments-column comment-cell relative">
+                            <span class="comment-display" title="${vitalEntry.comments || ''}">${vitalEntry.comments || ''}</span>
+                            <button class="comment-toggle-btn absolute top-1 right-1 text-gray-400 hover:text-gray-700">${vitalEntry.comments ? '💬' : '+'}</button>
+                            <div class="comment-overlay hidden">
+                                <textarea class="w-full h-full resize-none border rounded-md p-1 text-base" placeholder="Comentario corto">${vitalEntry.comments || ''}</textarea>
+                                <button class="absolute bottom-1 right-1 bg-blue-500 text-white px-2 py-1 rounded-md text-sm save-comment-btn">💾</button>
+                            </div>
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="initials">${vitalEntry.initials || loggedInUserInitials}</td>
+                    `;
+                    if (elements.vitalsTableBody) { // Added check
+                        elements.vitalsTableBody.appendChild(row);
+                    }
+                });
+            };
+
+            const updateDisplay = () => {
+                if (elements.currentDateRange) { // Added check
+                    elements.currentDateRange.textContent = getFormattedDateRange(currentDate);
+                }
+                renderSignosVitalesTable(currentDate);
+                // Removed calculateTableHeight() call
+            };
+
+            // Core Logic Functions
+            const handleVitalSignEdit = (cell) => {
+                const row = cell.closest('tr');
+                const oldTime = row.dataset.time; // Get the original time from the row's dataset
+                const oldDateKey = row.dataset.date; // Get the original date key from the row's dataset
+                const newValue = cell.textContent.trim();
+                const columnName = cell.dataset.column;
+
+                // Determine the effective date key for the new value
+                let effectiveDateKey;
+                const hourNumber = parseInt(oldTime.split(':')[0]);
+                if (hourNumber >= 8) { // If the old time was 08:00-23:59, it belongs to the current date
+                    effectiveDateKey = currentDate.toISOString().slice(0, 10);
+                } else { // If the old time was 00:00-07:59, it belongs to the next date
+                    const nextDay = new Date(currentDate);
+                    nextDay.setDate(currentDate.getDate() + 1);
+                    effectiveDateKey = nextDay.toISOString().slice(0, 10);
+                }
+
+                // Ensure the vitals array for the effective date key exists
+                if (!mockPatientData[currentPatientId].vitals[effectiveDateKey]) {
+                    mockPatientData[currentPatientId].vitals[effectiveDateKey] = [];
+                }
+
+                // Get all relevant vitals for the period to find the entry
+                const currentCalendarDateKey = currentDate.toISOString().slice(0, 10);
+                const nextCalendarDay = new Date(currentDate);
+                nextCalendarDay.setDate(currentDate.getDate() + 1);
+                const nextCalendarDateKey = nextCalendarDay.toISOString().slice(0, 10);
+                const allVitalsForPeriod = [
+                    ...(mockPatientData[currentPatientId].vitals[currentCalendarDateKey] || []),
+                    ...(mockPatientData[currentPatientId].vitals[nextCalendarDateKey] || [])
+                ];
+
+                // Handle time column specifically
+                if (columnName === 'time') {
+                    const timeRegex = /^(?:2[0-3]|[01]?[0-9]):(?:[0-5]?[0-9])$/; // HH:MM format
+                    if (!timeRegex.test(newValue)) {
+                        alert('Formato de hora incorrecto. Use HH:MM (Ej: 08:00).');
+                        cell.classList.add('time-input-error');
+                        return;
+                    }
+
+                    // Determine the new effective date key based on the new time value
+                    const newHourNumber = parseInt(newValue.split(':')[0]);
+                    let newEffectiveDateKey;
+                    if (newHourNumber >= 8) {
+                        newEffectiveDateKey = currentDate.toISOString().slice(0, 10);
+                    } else {
+                        const newNextDay = new Date(currentDate);
+                        newNextDay.setDate(currentDate.getDate() + 1);
+                        newEffectiveDateKey = newNextDay.toISOString().slice(0, 10);
+                    }
+
+                    // Check for duplicate time on the NEW effective date
+                    const isDuplicate = allVitalsForPeriod.some(entry => 
+                        entry.time === newValue && entry.date === newEffectiveDateKey &&
+                        !(entry.time === oldTime && entry.date === oldDateKey) // Exclude the current entry if its time/date is being edited
+                    );
+                    
+                    if (isDuplicate) {
+                        alert('Ya existe una entrada para esta hora en la fecha correspondiente. Por favor, ingrese una hora diferente.');
+                        cell.classList.add('time-input-error');
+                        return;
+                    }
+
+                    // Find the existing entry using oldTime and oldDateKey
+                    let entryIndex = -1;
+                    if (mockPatientData[currentPatientId].vitals[oldDateKey]) {
+                        entryIndex = mockPatientData[currentPatientId].vitals[oldDateKey].findIndex(v => v.time === oldTime && v.date === oldDateKey);
+                    }
+                    
+                    if (entryIndex !== -1) {
+                        // If found, remove from old location
+                        const [entry] = mockPatientData[currentPatientId].vitals[oldDateKey].splice(entryIndex, 1);
+                        // Update and add to new location
+                        entry.time = newValue;
+                        entry.date = newEffectiveDateKey;
+                        if (!mockPatientData[currentPatientId].vitals[newEffectiveDateKey]) {
+                            mockPatientData[currentPatientId].vitals[newEffectiveDateKey] = [];
+                        }
+                        mockPatientData[currentPatientId].vitals[newEffectiveDateKey].push(entry);
+                        mockPatientData[currentPatientId].vitals[newEffectiveDateKey].sort((a, b) => a.time.localeCompare(b.time));
+                    } else {
+                        // If not found (e.g., new row), create a new entry
+                        const newEntry = { time: newValue, date: newEffectiveDateKey, initials: loggedInUserInitials };
+                        if (!mockPatientData[currentPatientId].vitals[newEffectiveDateKey]) {
+                            mockPatientData[currentPatientId].vitals[newEffectiveDateKey] = [];
+                        }
+                        mockPatientData[currentPatientId].vitals[newEffectiveDateKey].push(newEntry);
+                        mockPatientData[currentPatientId].vitals[newEffectiveDateKey].sort((a, b) => a.time.localeCompare(b.time));
+                    }
+                    
+                    cell.classList.remove('time-input-error');
+                    
+                    // Re-render to ensure sorting and update the display correctly
+                    renderSignosVitalesTable(currentDate); 
+
+                    // Highlight the updated row
+                    if (elements.vitalsTableBody) { // Added check
+                        const updatedRowElement = elements.vitalsTableBody.querySelector(`tr[data-time="${newValue}"][data-date="${newEffectiveDateKey}"]`);
+                        if (updatedRowElement) {
+                            updatedRowElement.classList.add('new-row-highlight');
+                            setTimeout(() => {
+                                updatedRowElement.classList.remove('new-row-highlight');
+                            }, 1000); // Highlight for 1 second
+                        }
+                    }
+                    return; // Exit as time handling is complete
+                }
+
+                // Continue with existing vital sign editing logic for other columns
+                let isValid = true;
+                let message = '';
+                const type = cell.dataset.type;
+                const validation = cell.dataset.validation;
+
+                // Find the entry to update using oldTime and oldDateKey
+                let entryToUpdate = null;
+                if (mockPatientData[currentPatientId].vitals[oldDateKey]) {
+                    entryToUpdate = mockPatientData[currentPatientId].vitals[oldDateKey].find(v => v.time === oldTime && v.date === oldDateKey);
+                }
+                
+                if (!entryToUpdate) {
+                    // This should ideally not happen if the row was rendered from existing data,
+                    // but for new rows where time was just entered, we need to create the entry.
+                    entryToUpdate = { time: oldTime, date: oldDateKey, initials: loggedInUserInitials };
+                    if (!mockPatientData[currentPatientId].vitals[oldDateKey]) {
+                        mockPatientData[currentPatientId].vitals[oldDateKey] = [];
+                    }
+                    mockPatientData[currentPatientId].vitals[oldDateKey].push(entryToUpdate);
+                    mockPatientData[currentPatientId].vitals[oldDateKey].sort((a, b) => a.time.localeCompare(b.time));
+                }
+
+
+                if (columnName === 'pa_pam') {
+                    const parts = newValue.split(',').map(s => s.trim());
+                    let paPart = parts[0];
+                    let pamPart = parts[1];
+
+                    let paValid = true;
+                    let pamValid = true;
+
+                    if (paPart && !/^\d+\/\d+$/.test(paPart)) {
+                        paValid = false;
+                        message = 'Formato PA incorrecto (ej: 120/80).';
+                    }
+                    if (pamPart && isNaN(parseFloat(pamPart)) && pamPart !== '') {
+                        pamValid = false;
+                        message = (message ? message + ' ' : '') + 'PAM debe ser un número.';
+                    }
+
+                    if (paValid && pamValid) {
+                        entryToUpdate.pa = paPart;
+                        entryToUpdate.pam = pamPart === '' ? '' : parseFloat(pamPart);
+                    } else {
+                        isValid = false;
+                    }
+                } else {
+                    if (type === 'number') {
+                        const value = parseFloat(newValue);
+                        if (isNaN(value) && newValue !== '') {
+                            isValid = false;
+                            message = 'Debe ser un número.';
+                        } else if (validation === 'temp' && (value < 34 || value > 42) && newValue !== '') {
+                            isValid = false;
+                            message = 'Temperatura fuera de rango (34-42°C).';
+                        } else if (validation === 'fc' && (value < 30 || value > 200) && newValue !== '') {
+                            isValid = false;
+                            message = 'FC fuera de rango (30-200 lpm).';
+                        } else if (validation === 'sat' && (value < 50 || value > 100) && newValue !== '') {
+                            isValid = false;
+                            message = 'Sat O2 fuera de rango (50-100%).';
+                        } else if (validation === 'pain-scale' && (value < 0 || value > 10) && newValue !== '') {
+                            isValid = false;
+                            message = 'Dolor fuera de rango (0-10).';
+                        } else if (validation === 'glasgow' && (value < 3 || value > 15) && newValue !== '') {
+                            isValid = false;
+                            message = 'Glasgow fuera de rango (3-15).';
+                        } else if (validation === 'pvc' && (value < -10 || value > 30) && newValue !== '') {
+                            isValid = false;
+                            message = 'PVC fuera de rango (-10 a 30 cmH2O).';
+                        }
+                    } else if (type === 'text') {
+                        if (validation === 'painv' && newValue !== '' && !/^\d+\/\d+$/.test(newValue)) {
+                            isValid = false;
+                            message = 'Formato PA Invasiva incorrecto (ej: 120/80).';
+                        }
+                    }
+                    if (isValid) {
+                        entryToUpdate[columnName] = newValue;
+                    }
+                }
+
+                if (!isValid) {
+                    cell.classList.add('border-red-500', 'border-2');
+                    cell.title = message;
+                } else {
+                    cell.classList.remove('border-red-500', 'border-2');
+                    cell.title = '';
+                    cell.classList.add('cell-saved-feedback');
+                    const saveIcon = document.createElement('span');
+                    saveIcon.classList.add('save-icon');
+                    saveIcon.innerHTML = '💾';
+                    cell.appendChild(saveIcon);
+                    setTimeout(() => {
+                        cell.classList.remove('cell-saved-feedback');
+                        saveIcon.classList.add('show');
+                        setTimeout(() => saveIcon.remove(), 1000);
+                    }, 100);
+                }
+            };
+
+            const toggleCommentField = (commentCell) => {
+                const overlay = commentCell.querySelector('.comment-overlay');
+                const textarea = overlay.querySelector('textarea');
+                const commentToggleBtn = commentCell.querySelector('.comment-toggle-btn');
+                
+                if (overlay) { // Added check
+                    overlay.classList.toggle('hidden');
+                    if (!overlay.classList.contains('hidden')) {
+                        textarea.focus();
+                        if (commentToggleBtn) { // Added check
+                            commentToggleBtn.classList.add('comment-icon-active');
+                        }
+                    } else {
+                        if (commentToggleBtn) { // Added check
+                            commentToggleBtn.classList.remove('comment-icon-active');
+                        }
+                    }
+                }
+            };
+
+            const saveComment = (commentCell) => {
+                const overlay = commentCell.querySelector('.comment-overlay');
+                const textarea = overlay.querySelector('textarea');
+                const commentDisplay = commentCell.querySelector('.comment-display');
+                const commentToggleBtn = commentCell.querySelector('.comment-toggle-btn');
+                const newComment = textarea.value.trim();
+
+                if (commentDisplay) { // Added check
+                    commentDisplay.textContent = newComment;
+		            commentDisplay.title = newComment; // Update the title attribute for the tooltip
+                }
+                if (overlay) { // Added check
+                    overlay.classList.add('hidden');
+                }
+                if (commentToggleBtn) { // Added check
+                    commentToggleBtn.textContent = newComment ? '💬' : '+';
+                    commentToggleBtn.classList.remove('comment-icon-active');
+                }
+
+                const row = commentCell.closest('tr');
+                const time = row.dataset.time;
+                const dateKey = row.dataset.date; // Use the effective date key from the row
+
+                // Ensure the vitals array for the current date key exists
+                if (!mockPatientData[currentPatientId].vitals[dateKey]) {
+                    mockPatientData[currentPatientId].vitals[dateKey] = [];
+                }
+                let entry = mockPatientData[currentPatientId].vitals[dateKey].find(v => v.time === time && v.date === dateKey);
+                if (!entry) {
+                    entry = { time: time, date: dateKey, initials: loggedInUserInitials };
+                    mockPatientData[currentPatientId].vitals[dateKey].push(entry);
+                    mockPatientData[currentPatientId].vitals[dateKey].sort((a, b) => a.time.localeCompare(b.time));
+                }
+                entry.comments = newComment;
+
+                commentCell.classList.add('cell-saved-feedback');
+                const saveIcon = document.createElement('span');
+                saveIcon.classList.add('save-icon');
+                saveIcon.innerHTML = '💾';
+                commentCell.appendChild(saveIcon);
+                setTimeout(() => {
+                    commentCell.classList.remove('cell-saved-feedback');
+                    saveIcon.classList.add('show');
+                    setTimeout(() => saveIcon.remove(), 1000);
+                }, 100);
+            };
+
+            const saveHgt = () => {
+                const value = elements.hgtInlineValueInput ? elements.hgtInlineValueInput.value : ''; // Added check
+                const insulinDose = elements.hgtInlineInsulinDoseInput ? elements.hgtInlineInsulinDoseInput.value : ''; // Added check
+                const insulinType = elements.hgtInlineInsulinTypeInput ? elements.hgtInlineInsulinTypeInput.value : ''; // Added check
+                const observation = elements.hgtInlineObservationInput ? elements.hgtInlineObservationInput.value : ''; // Added check
+                const time = elements.hgtInlineRegisterTimeInput ? elements.hgtInlineRegisterTimeInput.value : ''; // Added check
+
+                if (!value || !time) {
+                    alert('Por favor, complete el valor y la hora del Hemoglucotest.');
+                    return;
+                }
+
+                // Determine the effective date key for the HGT entry
+                const hourNumber = parseInt(time.split(':')[0]);
+                let effectiveDateKeyForHGT;
+                if (hourNumber >= 8) { // If the time is 08:00-23:59, it belongs to the current date
+                    effectiveDateKeyForHGT = currentDate.toISOString().slice(0, 10);
+                } else { // If the time is 00:00-07:59, it belongs to the next date
+                    const nextDay = new Date(currentDate);
+                    nextDay.setDate(currentDate.getDate() + 1);
+                    effectiveDateKeyForHGT = nextDay.toISOString().slice(0, 10);
+                }
+
+                const newHgtEntry = {
+                    date: effectiveDateKeyForHGT, // Use the effective date
+                    time: time,
+                    value: parseInt(value),
+                    insulinDose: parseInt(insulinDose) || 0,
+                    insulinType: insulinType,
+                    observation: observation,
+                    executor: loggedInUserInitials
+                };
+
+                mockPatientData[currentPatientId].hgtHistory.push(newHgtEntry);
+                mockPatientData[currentPatientId].hgtHistory.sort((a, b) => {
+                    const dateA = new Date(`${a.date}T${a.time}`);
+                    const dateB = new Date(`${b.date}T${b.time}`);
+                    return dateA - dateB;
+                });
+
+                // Update the HGT value in the main vitals table
+                if (elements.vitalsTableBody) { // Added check
+                    const hgtCellElement = elements.vitalsTableBody.querySelector(`tr[data-time="${time}"][data-date="${effectiveDateKeyForHGT}"]`);
+                    if (hgtCellElement) {
+                        const hgtCell = hgtCellElement.querySelector('.hgt-cell');
+                        if (hgtCell) {
+                            const hgtValueSpan = hgtCell.querySelector('.hgt-cell-value');
+                            if (hgtValueSpan) {
+                                hgtValueSpan.textContent = value;
+                                const registerBtn = hgtValueSpan.nextElementSibling;
+                                if (registerBtn && registerBtn.classList.contains('hgt-register-btn')) {
+                                    registerBtn.remove();
+                                }
+                            }
+                        }
+                    }
+                }
+
+
+                // Hide the inline form and clear inputs
+                if (elements.hgtRegisterInlineForm) { // Added check
+                    elements.hgtRegisterInlineForm.classList.add('hidden');
+                }
+                if (elements.toggleInlineHgtFormBtn) { // Added check
+                    elements.toggleInlineHgtFormBtn.textContent = 'Registrar Nuevo HGT'; // Reset button text
+                }
+                if (elements.hgtInlineValueInput) { elements.hgtInlineValueInput.value = ''; } // Added checks
+                if (elements.hgtInlineInsulinDoseInput) { elements.hgtInlineInsulinDoseInput.value = ''; }
+                if (elements.hgtInlineInsulinTypeInput) { elements.hgtInlineInsulinTypeInput.value = ''; }
+                if (elements.hgtInlineObservationInput) { elements.hgtInlineObservationInput.value = ''; }
+                if (elements.hgtInlineRegisterTimeInput) { elements.hgtInlineRegisterTimeInput.value = ''; }
+
+                renderHgtHistoryTable();
+                alert('Hemoglucotest guardado.');
+            };
+
+            const openHgtHistoryModal = (showInlineForm = false, prefillTime = '') => {
+                renderBasalInsulinSchema(); // Call new function to render inline inputs
+                renderRapidInsulinTable();
+                renderHgtHistoryTable(); // Ensure the table is re-rendered with all consolidated data
+                // Removed renderRapidInsulinQuickGuide(); // Removed quick guide
+                if (elements.hgtHistoryModal) { // Added check
+                    elements.hgtHistoryModal.classList.remove('hidden');
+                }
+
+                if (showInlineForm) {
+                    if (elements.hgtRegisterInlineForm) { // Added check
+                        elements.hgtRegisterInlineForm.classList.remove('hidden');
+                    }
+                    if (elements.toggleInlineHgtFormBtn) { // Added check
+                        elements.toggleInlineHgtFormBtn.textContent = 'Ocultar Formulario';
+                    }
+                    if (elements.hgtInlineRegisterTimeInput) { // Added check
+                        if (prefillTime) {
+                            elements.hgtInlineRegisterTimeInput.value = prefillTime;
+                        } else {
+                            elements.hgtInlineRegisterTimeInput.value = formatTime(new Date());
+                        }
+                    }
+                } else {
+                    if (elements.hgtRegisterInlineForm) { // Added check
+                        elements.hgtRegisterInlineForm.classList.add('hidden');
+                    }
+                    if (elements.toggleInlineHgtFormBtn) { // Added check
+                        elements.toggleInlineHgtFormBtn.textContent = 'Registrar Nuevo HGT';
+                    }
+                }
+            };
+
+            const renderHgtHistoryTable = () => {
+                if (elements.hgtHistoryTableBody) { // Added check
+                    elements.hgtHistoryTableBody.innerHTML = '';
+                    const patientHgtHistory = mockPatientData[currentPatientId].hgtHistory;
+
+                    patientHgtHistory.forEach(entry => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.date} ${entry.time}</td>
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.value}</td>
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.insulinDose}</td>
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.insulinType}</td>
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.observation}</td>
+                            <td class="px-3 py-2 whitespace-nowrap text-base text-gray-900">${entry.executor}</td>
+                        `;
+                        elements.hgtHistoryTableBody.appendChild(row);
+                    });
+                }
+            };
+
+            // New function to render basal insulin schema (inline inputs)
+            const renderBasalInsulinSchema = () => {
+                const basalData = mockPatientData[currentPatientId].insulinSchema.basal;
+                if (elements.basalAmDoseInput) { elements.basalAmDoseInput.value = basalData.am || ''; } // Added checks
+                if (elements.basalPmDoseInput) { elements.basalPmDoseInput.value = basalData.pm || ''; }
+                if (elements.basalInsulinTypeInput) { elements.basalInsulinTypeInput.value = basalData.insulinTypeLenta || ''; }
+            };
+
+            // New function to handle changes in basal dose inputs
+            const handleBasalDoseChange = (event) => {
+                const inputElement = event.target;
+                const column = inputElement.dataset.column; // 'am' or 'pm'
+                const newValue = parseInt(inputElement.value.trim());
+
+                if (isNaN(newValue) && inputElement.value.trim() !== '') {
+                    alert('La dosis debe ser un número.');
+                    inputElement.classList.add('border-red-500', 'border-2');
+                    return;
+                }
+
+                mockPatientData[currentPatientId].insulinSchema.basal[column] = newValue || 0;
+                inputElement.classList.remove('border-red-500', 'border-2');
+                inputElement.classList.add('cell-saved-feedback');
+                setTimeout(() => {
+                    inputElement.classList.remove('cell-saved-feedback');
+                }, 500);
+            };
+
+            const handleBasalInsulinTypeChange = () => {
+                if (elements.basalInsulinTypeInput) { // Added check
+                    mockPatientData[currentPatientId].insulinSchema.basal.insulinTypeLenta = elements.basalInsulinTypeInput.value.trim();
+                    elements.basalInsulinTypeInput.classList.add('cell-saved-feedback');
+                    setTimeout(() => {
+                        elements.basalInsulinTypeInput.classList.remove('cell-saved-feedback');
+                    }, 500);
+                }
+            };
+
+            const handleRapidInsulinTypeChange = () => {
+                if (elements.rapidInsulinTypeInput) { // Added check
+                    mockPatientData[currentPatientId].insulinSchema.insulinTypeRapida = elements.rapidInsulinTypeInput.value.trim();
+                    elements.rapidInsulinTypeInput.classList.add('cell-saved-feedback');
+                    setTimeout(() => {
+                        elements.rapidInsulinTypeInput.classList.remove('cell-saved-feedback');
+                    }, 500);
+                }
+            };
+
+            const renderRapidInsulinTable = () => {
+                const rapidData = mockPatientData[currentPatientId].insulinSchema.rapid;
+                if (elements.rapidInsulinTableBody) { // Added check
+                    elements.rapidInsulinTableBody.innerHTML = '';
+
+                    // Ensure exactly 10 rows are always present
+                    const numRowsToRender = 10; 
+
+                    for (let i = 0; i < numRowsToRender; i++) {
+                        // Fill with empty entries if less than 10
+                        const entry = rapidData[i] || { range: '', dose: '' }; 
+                        const row = document.createElement('tr');
+                        row.dataset.index = i;
+                        row.innerHTML = `
+                            <td class="px-2 py-1 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="range" data-type="text">${entry.range}</td> <!-- Reduced px-3 py-2 to px-2 py-1 -->
+                            <td class="px-2 py-1 whitespace-nowrap text-base text-gray-900" contenteditable="true" data-column="dose" data-type="number">${entry.dose}</td> <!-- Reduced px-3 py-2 to px-2 py-1 -->
+                            <td class="px-2 py-1 whitespace-nowrap text-base text-gray-900">
+                                <!-- Removed delete button -->
+                            </td>
+                        `;
+                        elements.rapidInsulinTableBody.appendChild(row);
+                    }
+                }
+                
+                // Set value for new rapid insulin type input
+                if (elements.rapidInsulinTypeInput) { // Added check
+                    elements.rapidInsulinTypeInput.value = mockPatientData[currentPatientId].insulinSchema.insulinTypeRapida || '';
+                }
+            };
+
+            // Removed renderRapidInsulinQuickGuide function
+
+            const handleRapidInsulinEdit = (cell) => {
+                const row = cell.closest('tr');
+                const index = parseInt(row.dataset.index);
+                const column = cell.dataset.column;
+                let newValue = cell.textContent.trim();
+
+                if (column === 'dose') {
+                    const parsedValue = parseInt(newValue);
+                    if (isNaN(parsedValue) && newValue !== '') {
+                        alert('La dosis debe ser un número.');
+                        cell.classList.add('border-red-500', 'border-2');
+                        return;
+                    }
+                    newValue = parsedValue || ''; // Store as empty string if empty
+                }
+
+                // Ensure the array has enough elements up to the current index
+                while (mockPatientData[currentPatientId].insulinSchema.rapid.length <= index) {
+                    mockPatientData[currentPatientId].insulinSchema.rapid.push({ range: '', dose: '' });
+                }
+                
+                mockPatientData[currentPatientId].insulinSchema.rapid[index][column] = newValue;
+
+                cell.classList.remove('border-red-500', 'border-2');
+                cell.classList.add('cell-saved-feedback');
+                const saveIcon = document.createElement('span');
+                saveIcon.classList.add('save-icon');
+                saveIcon.innerHTML = '💾';
+                cell.appendChild(saveIcon);
+                setTimeout(() => {
+                    cell.classList.remove('cell-saved-feedback');
+                    saveIcon.classList.add('show');
+                    setTimeout(() => saveIcon.remove(), 1000);
+                }, 100);
+
+                // No re-render needed for delete button visibility as it's removed
+            };
+
+            // Removed addRapidInsulinRow and deleteRapidInsulinRow functions
+
+            // Function to calculate and set max-height for the vital signs table
+            // Removed calculateTableHeight function as it's no longer needed
+
+            // New function to toggle compact mode
+            const toggleCompactMode = () => {
+                isCompactMode = !isCompactMode;
+                if (elements.toggleCompactBtn) { // Added check
+                    elements.toggleCompactBtn.textContent = isCompactMode ? 'Expandir' : 'Compactar';
+                }
+                renderSignosVitalesTable(currentDate); // Re-render table with new mode
+            };
+
+            // Event Listeners
+            if (elements.prevDayBtn) { // Added check
+                elements.prevDayBtn.addEventListener('click', () => {
+                    currentDate.setDate(currentDate.getDate() - 1);
+                    updateDisplay();
+                });
+            }
+
+            if (elements.nextDayBtn) { // Added check
+                elements.nextDayBtn.addEventListener('click', () => {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    updateDisplay();
+                });
+            }
+
+            if (elements.vitalsTableBody) { // Added check
+                elements.vitalsTableBody.addEventListener('blur', (e) => {
+                    const cell = e.target;
+                    if (cell.contentEditable === 'true' && cell.tagName === 'TD' && cell.dataset.column !== 'comments') {
+                        handleVitalSignEdit(cell);
+                    }
+                }, true);
+
+                // New: Handle Enter key as Tab
+                elements.vitalsTableBody.addEventListener('keydown', (e) => {
+                    const targetCell = e.target;
+                    // Only apply for contenteditable TD cells, and not for the comment overlay textarea
+                    if (e.key === 'Enter' && targetCell.tagName === 'TD' && targetCell.contentEditable === 'true' && !targetCell.closest('.comment-overlay')) {
+                        e.preventDefault(); // Prevent newline or default Enter behavior
+
+                        const allEditableCells = Array.from(elements.vitalsTableBody.querySelectorAll('td[contenteditable="true"]:not(.comment-cell)')); // Exclude comment cells from tab order
+                        const currentIndex = allEditableCells.indexOf(targetCell);
+
+                        if (currentIndex > -1 && currentIndex < allEditableCells.length - 1) {
+                            const nextCell = allEditableCells[currentIndex + 1];
+                            nextCell.focus();
+                            // Select all content in the next cell for easier typing
+                            const range = document.createRange();
+                            const selection = window.getSelection();
+                            range.selectNodeContents(nextCell);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        } else {
+                            // If it's the last editable cell, blur it
+                            targetCell.blur();
+                        }
+                    }
+                });
+
+                elements.vitalsTableBody.addEventListener('click', (e) => {
+                    const target = e.target;
+                    const cell = target.closest('td');
+
+                    if (target.classList.contains('comment-toggle-btn') || (cell && cell.classList.contains('comment-cell') && !target.classList.contains('save-comment-btn'))) {
+                        const commentCell = target.closest('.comment-cell');
+                        toggleCommentField(commentCell);
+                    }
+                    if (target.classList.contains('save-comment-btn')) {
+                        const commentCell = target.closest('.comment-cell');
+                        saveComment(commentCell);
+                    }
+                    // HGT Register Button in main table
+                    if (target.classList.contains('hgt-register-btn')) {
+                        const hour = target.dataset.hour.substring(0,5);
+                        openHgtHistoryModal(true, hour); // Open modal and show inline form
+                    }
+                    // HGT Cell Click (if value exists) in main table
+                    if (cell && cell.classList.contains('hgt-cell') && cell.querySelector('.hgt-cell-value').textContent.trim() !== '' && !target.classList.contains('hgt-register-btn')) {
+                        openHgtHistoryModal(false); // Open modal, but don't show inline form by default
+                    }
+                });
+            }
+
+            if (elements.hgtColumnHeader) { // Added check
+                elements.hgtColumnHeader.addEventListener('click', () => {
+                    openHgtHistoryModal(false); // Open modal, but don't show inline form by default
+                });
+            }
+
+            // HGT History Modal Listeners
+            if (elements.closeHgtHistoryModal) { // Added check
+                elements.closeHgtHistoryModal.addEventListener('click', () => {
+                    if (elements.hgtHistoryModal) { // Added check
+                        elements.hgtHistoryModal.classList.add('hidden');
+                    }
+                });
+            }
+
+            // Inline HGT Registration Listeners
+            if (elements.saveInlineHgtBtn) { // Added check
+                elements.saveInlineHgtBtn.addEventListener('click', saveHgt);
+            }
+            // Modified toggleInlineHgtFormBtn listener
+            if (elements.toggleInlineHgtFormBtn) { // Added check
+                elements.toggleInlineHgtFormBtn.addEventListener('click', () => {
+                    const isFormHidden = elements.hgtRegisterInlineForm ? elements.hgtRegisterInlineForm.classList.contains('hidden') : true; // Added check
+                    if (elements.hgtRegisterInlineForm) { // Added check
+                        elements.hgtRegisterInlineForm.classList.toggle('hidden');
+                    }
+                    if (isFormHidden) {
+                        elements.toggleInlineHgtFormBtn.textContent = 'Ocultar Formulario';
+                        if (elements.hgtInlineRegisterTimeInput) { // Added check
+                            elements.hgtInlineRegisterTimeInput.value = formatTime(new Date()); // Pre-fill with current time
+                        }
+                    } else {
+                        if (elements.hgtInlineValueInput) { elements.hgtInlineValueInput.value = ''; } // Added checks
+                        if (elements.hgtInlineInsulinDoseInput) { elements.hgtInlineInsulinDoseInput.value = ''; }
+                        if (elements.hgtInlineInsulinTypeInput) { elements.hgtInlineInsulinTypeInput.value = ''; }
+                        if (elements.hgtInlineObservationInput) { elements.hgtInlineObservationInput.value = ''; }
+                        if (elements.hgtInlineRegisterTimeInput) { elements.hgtInlineRegisterTimeInput.value = ''; }
+                        elements.toggleInlineHgtFormBtn.textContent = 'Registrar Nuevo HGT';
+                    }
+                });
+            }
+
+            // Basal Insulin Type and Dose Listeners
+            if (elements.basalInsulinTypeInput) { // Added check
+                elements.basalInsulinTypeInput.addEventListener('change', handleBasalInsulinTypeChange);
+            }
+            if (elements.basalAmDoseInput) { // Added check
+                elements.basalAmDoseInput.addEventListener('change', handleBasalDoseChange);
+            }
+            if (elements.basalPmDoseInput) { // Added check
+                elements.basalPmDoseInput.addEventListener('change', handleBasalDoseChange);
+            }
+
+            // Rapid Insulin Type and Table Listeners
+            if (elements.rapidInsulinTypeInput) { // Added check
+                elements.rapidInsulinTypeInput.addEventListener('change', handleRapidInsulinTypeChange);
+            }
+            if (elements.rapidInsulinTableBody) { // Added check
+                elements.rapidInsulinTableBody.addEventListener('blur', (e) => {
+                    const cell = e.target;
+                    if (cell.contentEditable === 'true' && cell.tagName === 'TD' && cell.dataset.column) {
+                        handleRapidInsulinEdit(cell);
+                    }
+                }, true);
+            }
+
+            // New: Add event listener for the compact button
+            if (elements.toggleCompactBtn) { // Added check
+                elements.toggleCompactBtn.addEventListener('click', toggleCompactMode);
+            }
+
+            // Initial render and height calculation
+            updateDisplay();
+            // Removed window.addEventListener('resize', calculateTableHeight);
+        });
+    </script>
+</body>
+</html>
